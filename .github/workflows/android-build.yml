@@ -74,6 +74,17 @@ jobs:
               source = source.replace("mutableFloatStateOf(", "mutableStateOf(")
               source = source.replace("mutableIntStateOf(", "mutableStateOf(")
               source = source.replace(
+                  ".animateToPage(",
+                  ".animateScrollToPage(",
+              )
+              if "import androidx.compose.foundation.pager.animateScrollToPage" not in source:
+                  source = re.sub(
+                      r"(?m)^(package [^\n]+\n)",
+                      r"\1import androidx.compose.foundation.pager.animateScrollToPage\n",
+                      source,
+                      count=1,
+                  )
+              source = source.replace(
                   "import androidx.compose.animation.core.Animatable\n",
                   "",
               )
