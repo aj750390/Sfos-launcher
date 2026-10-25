@@ -2,7 +2,8 @@ name: Build Sailfish Android Launcher APK
 
 on:
   push:
-    branches: [ "*" ]
+    branches:
+      - "*"
   pull_request:
   workflow_dispatch:
 
@@ -11,68 +12,92 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: temurin
+          java-version: "17"
 
-      - name: Setup Android SDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Setup Gradle 8.7
+      - name: Set up Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.7'
+          gradle-version: "8.7"
 
-      - name: Normalize & Auto-Repair Android Project Structure
+      - name: Normalize and repair Android project structure
+        shell: bash
         run: |
+          set -euo pipefail
+
           mkdir -p app/src/main/java/org/sailfish/launcher
 
-          # 1. If SailfishLauncher.kt was uploaded to repo root or another folder, copy it into place
-          if [ ! -f "app/src/main/java/org/sailfish/launcher/SailfishLauncher.kt" ]; then
-            FOUND_KT=$(find . -maxdepth 3 -name "SailfishLauncher.kt" | head -n 1)
-            if [ -n "$FOUND_KT" ]; then
-              cp "$FOUND_KT" app/src/main/java/org/sailfish/launcher/SailfishLauncher.kt
+          # If SailfishLauncher.kt was uploaded to the repository root or another
+          # directory, copy it into the expected package directory.
+          if [[ ! -f "app/src/main/java/org/sailfish/launcher/SailfishLauncher.kt" ]]; then
+            found_kt="$(find . -type f -name "SailfishLauncher.kt" -not -path "./app/src/main/java/org/sailfish/launcher/SailfishLauncher.kt" -print -quit)"
+            if [[ -n "$found_kt" ]]; then
+              cp "$found_kt" "app/src/main/java/org/sailfish/launcher/SailfishLauncher.kt"
             fi
           fi
 
-          # 2. Auto-patch any Compose API version incompatibilities in SailfishLauncher.kt
-          python3 - << 'PY'
-          import os, re
-          kt_path = "app/src/main/java/org/sailfish/launcher/SailfishLauncher.kt"
-          if os.path.exists(kt_path):
-              s = open(kt_path, "r", encoding="utf-8", errors="ignore").read()
-              s = s.replace("Icons.Default.PushPin", "Icons.Default.Star")
-              s = s.replace("HapticFeedbackType.TextHandleMove", "HapticFeedbackType.LongPress")
-              s = s.replace("mutableFloatStateOf(", "mutableStateOf(")
-              s = s.replace("mutableIntStateOf(", "mutableStateOf(")
-              s = s.replace("import androidx.compose.animation.core.Animatable
-", "")
-              s = s.replace("val remorseProgress = remember { Animatable(1f) }", "val remorseProgress = remember { mutableStateOf(1f) }")
-              s = s.replace("remorseProgress.snapTo(1f)", "remorseProgress.value = 1f")
-              s = re.sub(r"remorseProgress\.animateTo\([^)]+\)", "delay(5000L); remorseProgress.value = 0f", s)
-              s = re.sub(
+          # Patch known Compose API incompatibilities.
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          kt_path = Path("app/src/main/java/org/sailfish/launcher/SailfishLauncher.kt")
+
+          if kt_path.exists():
+              source = kt_path.read_text(encoding="utf-8", errors="ignore")
+              source = source.replace("Icons.Default.PushPin", "Icons.Default.Star")
+              source = source.replace(
+                  "HapticFeedbackType.TextHandleMove",
+                  "HapticFeedbackType.LongPress",
+              )
+              source = source.replace("mutableFloatStateOf(", "mutableStateOf(")
+              source = source.replace("mutableIntStateOf(", "mutableStateOf(")
+              source = source.replace(
+                  "import androidx.compose.animation.core.Animatable\n",
+                  "",
+              )
+              source = source.replace(
+                  "val remorseProgress = remember { Animatable(1f) }",
+                  "val remorseProgress = remember { mutableStateOf(1f) }",
+              )
+              source = source.replace(
+                  "remorseProgress.snapTo(1f)",
+                  "remorseProgress.value = 1f",
+              )
+              source = re.sub(
+                  r"remorseProgress\.animateTo\([^)]+\)",
+                  "delay(5000L); remorseProgress.value = 0f",
+                  source,
+              )
+              source = re.sub(
                   r"LinearProgressIndicator\(\s*progress\s*=\s*\{\s*remorseProgress\.value\s*\},",
                   "LinearProgressIndicator(progress = remorseProgress.value,",
-                  s
+                  source,
               )
-              open(kt_path, "w", encoding="utf-8").write(s)
+              kt_path.write_text(source, encoding="utf-8")
           PY
 
-          # 3. Guarantee gradle.properties exists with AndroidX enabled
-          cat << 'EOF' > gradle.properties
+          # Ensure Gradle properties exist and AndroidX is enabled.
+          cat > gradle.properties <<'EOF'
           org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
           android.useAndroidX=true
           android.nonTransitiveRClass=true
           kotlin.code.style=official
           EOF
 
-          # 4. Guarantee settings.gradle.kts exists
-          cat << 'EOF' > settings.gradle.kts
+          # Ensure the Gradle settings file exists.
+          cat > settings.gradle.kts <<'EOF'
+          import org.gradle.api.initialization.resolve.RepositoriesMode
+
           pluginManagement {
               repositories {
                   google()
@@ -80,6 +105,7 @@ jobs:
                   gradlePluginPortal()
               }
           }
+
           dependencyResolutionManagement {
               repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
               repositories {
@@ -87,20 +113,21 @@ jobs:
                   mavenCentral()
               }
           }
+
           rootProject.name = "SailfishAndroidLauncher"
           include(":app")
           EOF
 
-          # 5. Guarantee root build.gradle.kts has plugin declarations only
-          cat << 'EOF' > build.gradle.kts
+          # Ensure the root Gradle file contains the required plugin declarations.
+          cat > build.gradle.kts <<'EOF'
           plugins {
               id("com.android.application") version "8.5.2" apply false
               id("org.jetbrains.kotlin.android") version "1.9.24" apply false
           }
           EOF
 
-          # 6. Guarantee app/build.gradle.kts is properly configured
-          cat << 'EOF' > app/build.gradle.kts
+          # Ensure the app module is properly configured.
+          cat > app/build.gradle.kts <<'EOF'
           plugins {
               id("com.android.application")
               id("org.jetbrains.kotlin.android")
@@ -121,13 +148,16 @@ jobs:
               buildFeatures {
                   compose = true
               }
+
               composeOptions {
                   kotlinCompilerExtensionVersion = "1.5.14"
               }
+
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
                   targetCompatibility = JavaVersion.VERSION_17
               }
+
               kotlinOptions {
                   jvmTarget = "17"
               }
@@ -145,15 +175,18 @@ jobs:
           }
           EOF
 
-          # 7. Guarantee app/src/main/AndroidManifest.xml exists
-          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          # Ensure the Android manifest exists.
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android"
               xmlns:tools="http://schemas.android.com/tools">
 
-              <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+              <uses-permission
+                  android:name="android.permission.QUERY_ALL_PACKAGES"
                   tools:ignore="QueryAllPackagesPermission" />
-              <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+              <uses-permission
+                  android:name="android.permission.PACKAGE_USAGE_STATS"
                   tools:ignore="ProtectedPermissions" />
               <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
               <uses-permission android:name="android.permission.VIBRATE" />
@@ -194,10 +227,10 @@ jobs:
           </manifest>
           EOF
 
-      - name: Build Debug APK
+      - name: Build debug APK
         run: gradle assembleDebug --no-daemon --console=plain
 
-      - name: Upload Compiled APK Artifact
+      - name: Upload compiled APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: sailfish-launcher-debug-apk
