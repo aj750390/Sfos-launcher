@@ -77,13 +77,10 @@ jobs:
                   ".animateToPage(",
                   ".animateScrollToPage(",
               )
-              if "import androidx.compose.foundation.pager.animateScrollToPage" not in source:
-                  source = re.sub(
-                      r"(?m)^(package [^\n]+\n)",
-                      r"\1import androidx.compose.foundation.pager.animateScrollToPage\n",
-                      source,
-                      count=1,
-                  )
+              source = source.replace(
+                  "import androidx.compose.foundation.pager.animateScrollToPage\n",
+                  "",
+              )
               source = source.replace(
                   "import androidx.compose.animation.core.Animatable\n",
                   "",
