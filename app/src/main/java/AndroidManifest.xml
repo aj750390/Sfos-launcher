@@ -2,7 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Unrooted permissions for App Discovery, Active Covers (UsageStats), and Ambience Profiles -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
@@ -32,7 +31,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Unrooted Notification Listener Bridge for Events View & Live Active Covers -->
         <service
             android:name=".SailfishNotificationBridge"
             android:exported="true"
