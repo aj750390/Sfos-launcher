@@ -25,7 +25,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager_path="$(find "$sdk_root" -type f -name sdkmanager -print -quit)"
+
+          if [[ -z "$sdkmanager_path" ]]; then
+            echo "Could not find sdkmanager under: $sdk_root" >&2
+            exit 1
+          fi
+
+          yes | "$sdkmanager_path" --licenses >/dev/null || true
+          "$sdkmanager_path" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Set up Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
