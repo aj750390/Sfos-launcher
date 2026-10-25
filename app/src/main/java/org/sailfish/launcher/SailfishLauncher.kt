@@ -4,26 +4,24 @@
  *
  * Key Unrooted Architecture Mechanics:
  * 1. Active Covers Grid (Home): Combines UsageStatsManager (recent apps), pinned apps,
- *    NotificationListenerService (live message previews), and MediaSessionManager (playback controls)
- *    to emulate Sailfish OS Lipstick/Silica Active Covers with left/right Cover Actions.
+ *    and NotificationListenerService (live message previews) to emulate Sailfish OS
+ *    Lipstick/Silica Active Covers with Cover Actions.
  * 2. Silica Pulley Menu (PullDownMenu): Physics-based vertical drag gesture from the top of any
  *    surface with edge glow, threshold-based item highlighting, haptic ticks, and release-to-execute.
  * 3. Remorse Timer (RemorseItem): 5-second inline cancellation bar when closing a cover or clearing
  *    notifications, matching Sailfish Silica's destructive action pattern.
  * 4. Three-Surface Spatial Flow: HorizontalPager between Events View (left) and Home Covers (right),
- *    plus swipe-up modal sheet for the 4-column Silica App Grid.
- * 5. Ambience Engine: Dynamic color tinting via Android Palette/WallpaperManager coupled with
- *    AudioManager ringer profile switching (Normal, Vibrate, Silent).
+ *    plus VerticalPager swipe-up for the 4-column Silica App Grid.
+ * 5. Ambience Engine: Dynamic color tinting coupled with AudioManager ringer profile switching
+ *    (Normal, Vibrate, Silent).
  */
 
 package org.sailfish.launcher
 
 import android.app.AppOpsManager
 import android.app.usage.UsageStatsManager
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.media.AudioManager
 import android.os.Build
@@ -32,18 +30,15 @@ import android.os.Process
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import android.view.HapticFeedbackConstants
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -64,19 +59,22 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -88,9 +86,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.util.*
-import kotlin.math.abs
-import kotlin.math.roundToInt
+import java.util.Date
+import java.util.Locale
 
 // ============================================================================
 // 1. DATA MODELS (Silica Ambience, Active Covers, Notifications & Apps)
@@ -250,7 +247,6 @@ class SailfishNotificationBridge : NotificationListenerService() {
 
         _notifications.value = mapped
 
-        // Also update live Active Cover snippets per package
         val snippetMap = mutableMapOf<String, Pair<String, String>>()
         mapped.forEach { notif ->
             if (!snippetMap.containsKey(notif.packageName)) {
@@ -353,7 +349,6 @@ object UnrootedSystemRepository {
             }
         }
 
-        // Default starter covers when UsageStats isn't granted yet or on fresh start
         return installedApps.take(maxCount).mapIndexed { index, app ->
             val snippet = liveSnippets[app.packageName]
             ActiveCoverItem(
@@ -399,8 +394,8 @@ fun SilicaPulleyMenuContainer(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    val haptic = LocalHapticFeedback.current
-    var dragOffsetPx by remember { mutableFloatStateOf(0f) }
+    val view = LocalView.current
+    var dragOffsetPx by remember { mutableStateOf(0f) }
     val density = LocalDensity.current
     val stepHeightPx = with(density) { 52.dp.toPx() }
     val activationStartPx = with(density) { 36.dp.toPx() }
@@ -416,10 +411,9 @@ fun SilicaPulleyMenuContainer(
         }
     }
 
-    // Trigger subtle haptic tick each time the highlighted pulley item changes
     LaunchedEffect(activeIndex) {
         if (activeIndex >= 0) {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
         }
     }
 
@@ -442,13 +436,12 @@ fun SilicaPulleyMenuContainer(
                     val selected = activeIndex
                     dragOffsetPx = 0f
                     if (selected in items.indices) {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                         items[selected].onSelect()
                     }
                 }
             )
     ) {
-        // Pulley Menu drawer revealed above content
         if (animatedOffset > 4f && items.isNotEmpty()) {
             Column(
                 modifier = Modifier
@@ -482,7 +475,6 @@ fun SilicaPulleyMenuContainer(
             }
         }
 
-        // Main screen content translated downwards during pull
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -490,7 +482,6 @@ fun SilicaPulleyMenuContainer(
         ) {
             content()
 
-            // Signature Sailfish Top Glow Indicator showing Pulley Menu availability
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -524,15 +515,18 @@ fun SilicaActiveCoverCard(
     modifier: Modifier = Modifier
 ) {
     var showRemorse by remember { mutableStateOf(false) }
-    val remorseProgress = remember { Animatable(1f) }
+    val remorseProgress by animateFloatAsState(
+        targetValue = if (showRemorse) 0f else 1f,
+        animationSpec = tween(
+            durationMillis = if (showRemorse) 5000 else 150,
+            easing = LinearEasing
+        ),
+        label = "remorseCountdown"
+    )
 
     LaunchedEffect(showRemorse) {
         if (showRemorse) {
-            remorseProgress.snapTo(1f)
-            remorseProgress.animateTo(
-                targetValue = 0f,
-                animationSpec = tween(durationMillis = 5000, easing = LinearEasing)
-            )
+            delay(5000L)
             if (showRemorse) {
                 onCloseCover()
             }
@@ -565,7 +559,6 @@ fun SilicaActiveCoverCard(
             .padding(14.dp)
     ) {
         if (showRemorse) {
-            // Sailfish Silica RemorseItem Overlay (5-second cancelable countdown)
             Column(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.Center,
@@ -585,22 +578,26 @@ fun SilicaActiveCoverCard(
                     fontSize = 12.sp
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                LinearProgressIndicator(
-                    progress = { remorseProgress.value },
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp)),
-                    color = ambience.highlightColor,
-                    trackColor = Color.White.copy(alpha = 0.2f)
-                )
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color.White.copy(alpha = 0.2f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(remorseProgress.coerceIn(0f, 1f))
+                            .fillMaxHeight()
+                            .background(ambience.highlightColor)
+                    )
+                }
             }
         } else {
             Column(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // Header: App Title + Pin indicator
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -616,7 +613,7 @@ fun SilicaActiveCoverCard(
                     )
                     if (cover.isPinned) {
                         Icon(
-                            imageVector = Icons.Default.PushPin,
+                            imageVector = Icons.Default.Star,
                             contentDescription = "Pinned Cover",
                             tint = Color.White.copy(alpha = 0.6f),
                             modifier = Modifier.size(14.dp)
@@ -624,7 +621,6 @@ fun SilicaActiveCoverCard(
                     }
                 }
 
-                // Body: Live Notification / Status Preview
                 Column {
                     Text(
                         text = cover.statusHeadline,
@@ -644,7 +640,6 @@ fun SilicaActiveCoverCard(
                     )
                 }
 
-                // Bottom Bar: Silica Cover Action Strip
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -694,7 +689,7 @@ fun SailfishLauncherRoot() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var currentAmbienceIndex by remember { mutableIntStateOf(0) }
+    var currentAmbienceIndex by remember { mutableStateOf(0) }
     val ambience = BuiltInAmbiences[currentAmbienceIndex]
 
     var installedApps by remember { mutableStateOf<List<InstalledApp>>(emptyList()) }
@@ -703,10 +698,7 @@ fun SailfishLauncherRoot() {
     var closedCoverPackages by remember { mutableStateOf<Set<String>>(emptySet()) }
     var searchQuery by remember { mutableStateOf("") }
 
-    // Pager states:
-    // Horizontal: Page 0 = Events View, Page 1 = Home View (Active Covers)
     val horizontalPagerState = rememberPagerState(initialPage = 1, pageCount = { 2 })
-    // Vertical: Page 0 = Workspace (Events/Home), Page 1 = Full App Grid
     val verticalPagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
 
     LaunchedEffect(Unit) {
@@ -737,7 +729,6 @@ fun SailfishLauncherRoot() {
             modifier = Modifier.fillMaxSize()
         ) { verticalPage ->
             if (verticalPage == 0) {
-                // Top Workspace: Events View (0) <-> Home Active Covers (1)
                 HorizontalPager(
                     state = horizontalPagerState,
                     modifier = Modifier.fillMaxSize()
@@ -793,7 +784,6 @@ fun SailfishLauncherRoot() {
                     }
                 }
             } else {
-                // Bottom Surface: Sailfish 4-Column App Grid
                 AppGridSurface(
                     ambience = ambience,
                     apps = installedApps,
@@ -862,7 +852,6 @@ fun HomeCoversSurface(
                 .fillMaxSize()
                 .padding(horizontal = 16.dp, vertical = 14.dp)
         ) {
-            // Silica Top Status & Clock Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -885,7 +874,6 @@ fun HomeCoversSurface(
                     )
                 }
 
-                // Ambience Badge
                 Surface(
                     color = ambience.surfaceOverlay,
                     shape = RoundedCornerShape(20.dp),
@@ -902,7 +890,6 @@ fun HomeCoversSurface(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Active Covers 2-Column Grid
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -919,7 +906,6 @@ fun HomeCoversSurface(
                 }
             }
 
-            // Bottom Edge Chevron Indicator for App Grid Swipe-Up
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1153,7 +1139,6 @@ fun AppGridSurface(
                         .clickable { onLaunchApp(app.packageName) }
                         .padding(vertical = 8.dp, horizontal = 4.dp)
                 ) {
-                    // Silica Squircle Icon Badge
                     Box(
                         modifier = Modifier
                             .size(54.dp)
@@ -1196,7 +1181,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Intercept system back button so pressing Back on the home launcher stays on Home
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 // Keep user on launcher workspace
